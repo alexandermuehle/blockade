@@ -215,7 +215,7 @@ def __with_containers(opts, func, **kwargs):
 
     if len(container_names) > 0:
         kwargs['select_random'] = select_random
-        return func(b, container_names, opts.delay, **kwargs)
+        return func(b, container_names, **kwargs)
     else:
         raise BlockadeError('selection does not match any container')
 

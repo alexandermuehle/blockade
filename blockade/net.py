@@ -61,7 +61,7 @@ class BlockadeNetwork(object):
         self.traffic_control.netem(device, ["delay"] + slow_config)
 
     def bislow(self, from_device, to_ip, delay):
-        self.traffic_control.bi_netem(from_device, to_ip, delay)
+        self.traffic_control.netem_bi(from_device, to_ip, delay)
 
     def duplicate(self, device):
         duplicate_config = self.config.network['duplicate'].split()
@@ -289,9 +289,34 @@ class _TrafficControl(object):
                "root", "netem"] + params
         self.host_exec.run(cmd)
 
-    def bi_netem(self, from_device, to_ip, delay):
-        print("From: %s, To: %s, Delay: %s" %(from_device, to_ip, delay))
-        # TODO
+    def netem_bi(self, from_device, to_ip, delay):
+        # Create root qdisc
+        cmd = "tc qdisc replace dev " + from_device + " root handle 1: htb"
+        try:
+            self.host_exec.run(cmd)
+        except Exception:
+            print("qdisc root already exists")
+
+        # Create region class
+        cmd = "tc class add dev " + from_device + " parent 1: classid 1:" + str(delay) + " htb rate 100mbit"
+        try:
+            self.host_exec.run(cmd)
+        except Exception:
+            print("region class already exists")
+
+        # Create target filter
+        cmd = "tc filter add dev " + from_device + " parent 1: protocol ip prio 1 u32 flowid 1:" + str(delay) + " match ip dst " + to_ip
+        try:
+            self.host_exec.run(cmd)
+        except Exception:
+            print("target filter already exists")
+
+        # Add netem qdisc
+        cmd = "tc qdisc add dev " + from_device + " parent 1:" + str(delay) + " handle " + str(delay) + ": netem delay " + str(delay) + "ms"
+        try:
+            self.host_exec.run(cmd)
+        except Exception:
+            print("netem already exists")
 
     def network_state(self, device):
         cmd = ["tc", "qdisc", "show", "dev", device]
