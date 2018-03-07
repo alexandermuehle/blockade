@@ -60,6 +60,9 @@ class BlockadeNetwork(object):
         slow_config = self.config.network['slow'].split()
         self.traffic_control.netem(device, ["delay"] + slow_config)
 
+    def bislow(self, from_device, to_ip, delay):
+        self.traffic_control.bi_netem(from_device, to_ip, delay)
+
     def duplicate(self, device):
         duplicate_config = self.config.network['duplicate'].split()
         self.traffic_control.netem(device, ["duplicate"] + duplicate_config)
@@ -281,11 +284,14 @@ class _TrafficControl(object):
             else:
                 raise
 
-
     def netem(self, device, params):
         cmd = ["tc", "qdisc", "replace", "dev", device,
                "root", "netem"] + params
         self.host_exec.run(cmd)
+
+    def bi_netem(self, from_device, to_ip, delay):
+        print("From: %s, To: %s, Delay: %s" %(from_device, to_ip, delay))
+        # TODO
 
     def network_state(self, device):
         cmd = ["tc", "qdisc", "show", "dev", device]

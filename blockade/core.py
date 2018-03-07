@@ -123,6 +123,9 @@ class Blockade(object):
             raise
         return device
 
+    def _get_container_ip(self, container_name):
+        return self._get_container_description(container_name).ip_address
+
     def __get_container_links(self, container):
         links = {}
         for link, alias in container.links.items():
@@ -361,11 +364,38 @@ class Blockade(object):
             self._audit.log_event(func.__name__, audit_status, message,
                                   container_names)
 
+    def __with_running_container_device_bislow(self, from_name, to_name, delay, func):
+        message = ""
+        audit_status = "Success"
+        try:
+            con1 = self._get_running_container(from_name)
+            con2 = self._get_running_container(to_name)
+            container_names = [from_name, to_name]
+            con1_device = self._get_device_id(con1.container_id, con1.name)
+            con1_ip = self._get_container_ip(con1.name)
+            con2_device = self._get_device_id(con2.container_id, con2.name)
+            con2_ip = self._get_container_ip(con2.name)
+
+            func(con1_device, con2_ip, delay)
+            func(con2_device, con1_ip, delay)
+
+            return container_names
+        except Exception as ex:
+            audit_status = "Failed"
+            message = str(ex)
+            raise
+        finally:
+            container_names = [from_name, to_name]
+            self._audit.log_event(func.__name__, audit_status, message, container_names)
+
     def flaky(self, container_names, select_random=False):
         return self.__with_running_container_device(container_names, self.network.flaky, select_random)
 
     def slow(self, container_names, select_random=False):
         return self.__with_running_container_device(container_names, self.network.slow, select_random)
+
+    def bislow(self, container_names, delay):
+        return self.__with_running_container_device_bislow(container_names.pop(), container_names.pop(), delay, self.network.bislow)
 
     def duplicate(self, container_names, select_random=False):
         return self.__with_running_container_device(container_names, self.network.duplicate, select_random)

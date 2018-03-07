@@ -144,6 +144,11 @@ def _add_container_selection_options(parser):
                         help='Select a random container')
 
 
+def _add_link_selection_options(parser):
+    parser.add_argument('containers', metavar='LINK', nargs=2,
+                        help='Link to select')
+
+
 def _check_container_selections(opts):
     if opts.containers and opts.all:
         raise BlockadeError("Either specify individual containers "
@@ -154,7 +159,7 @@ def _check_container_selections(opts):
         raise BlockadeError(
             "Specify individual containers or --all or --random")
 
-    return (opts.containers or None, opts.all, opts.random)
+    return opts.containers or None, opts.all, opts.random
 
 
 def cmd_up(opts):
@@ -183,6 +188,20 @@ def cmd_status(opts):
     print_containers(containers, opts.json)
 
 
+def __with_link(opts, func, **kwargs):
+    config = load_config(opts.config)
+    b = get_blockade(config, opts)
+    b.state.load()
+
+    configured_containers = set(b.state.containers.keys())
+    container_names = configured_containers.intersection(opts.containers)
+
+    if len(container_names) == 2:
+        return func(b, container_names, opts.delay, **kwargs)
+    else:
+        raise BlockadeError('selection does not match all containers')
+
+
 def __with_containers(opts, func, **kwargs):
     containers, select_all, select_random = _check_container_selections(opts)
     config = load_config(opts.config)
@@ -196,7 +215,7 @@ def __with_containers(opts, func, **kwargs):
 
     if len(container_names) > 0:
         kwargs['select_random'] = select_random
-        return func(b, container_names, **kwargs)
+        return func(b, container_names, opts.delay, **kwargs)
     else:
         raise BlockadeError('selection does not match any container')
 
@@ -236,6 +255,12 @@ def cmd_slow(opts):
     """Make the network slow for some or all containers
     """
     __with_containers(opts, Blockade.slow)
+
+
+def cmd_bislow(opts):
+    """Delay a link between two containers
+    """
+    __with_link(opts, Blockade.bislow)
 
 
 def cmd_fast(opts):
@@ -431,6 +456,7 @@ _CMDS = (("up", cmd_up),
          ("logs", cmd_logs),
          ("flaky", cmd_flaky),
          ("slow", cmd_slow),
+         ("bislow", cmd_bislow),
          ("duplicate", cmd_duplicate),
          ("fast", cmd_fast),
          ("partition", cmd_partition),
@@ -488,8 +514,15 @@ def setup_parser():
     _add_container_selection_options(command_parsers["fast"])
     _add_container_selection_options(command_parsers["duplicate"])
 
+    _add_link_selection_options(command_parsers["bislow"])
+
     command_parsers["logs"].add_argument("container", metavar='CONTAINER',
                                          help="Container to fetch logs for")
+
+    command_parsers["bislow"].add_argument(
+        "--delay",
+        help="The amount of time in ms to delay the given link", type=int, default=50
+    )
 
     command_parsers["partition"].add_argument(
         'partitions', nargs='*', metavar='PARTITION',
