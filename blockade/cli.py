@@ -144,11 +144,6 @@ def _add_container_selection_options(parser):
                         help='Select a random container')
 
 
-def _add_link_selection_options(parser):
-    parser.add_argument('containers', metavar='LINK', nargs=2,
-                        help='Link to select')
-
-
 def _check_container_selections(opts):
     if opts.containers and opts.all:
         raise BlockadeError("Either specify individual containers "
@@ -188,18 +183,33 @@ def cmd_status(opts):
     print_containers(containers, opts.json)
 
 
-def __with_link(opts, func, **kwargs):
+class Filter(object):
+    def __init__(self, name, value):
+        self.name = name
+        self.value = value
+
+
+def __with_filter(opts, func, **kwargs):
     config = load_config(opts.config)
     b = get_blockade(config, opts)
     b.state.load()
 
     configured_containers = set(b.state.containers.keys())
-    container_names = configured_containers.intersection(opts.containers)
+    container_names = configured_containers.intersection(opts.container)
 
-    if len(container_names) == 2:
-        return func(b, container_names, opts.delay, **kwargs)
+    filter_op = []
+
+    if opts.delay:
+        filter_op.append(Filter("delay", opts.delay))
+    if opts.loss:
+        filter_op.append(Filter("loss", opts.loss))
+    if opts.throttle:
+        filter_op.append(Filter("throttle", opts.throttle))
+
+    if len(container_names) == 1:
+        return func(b, container_names.pop(), opts.subnet.pop(0), filter_op, **kwargs)
     else:
-        raise BlockadeError('selection does not match all containers')
+        raise BlockadeError('selection does not match any container')
 
 
 def __with_containers(opts, func, **kwargs):
@@ -257,10 +267,10 @@ def cmd_slow(opts):
     __with_containers(opts, Blockade.slow)
 
 
-def cmd_bislow(opts):
+def cmd_filter(opts):
     """Delay a link between two containers
     """
-    __with_link(opts, Blockade.bislow)
+    __with_filter(opts, Blockade.filter)
 
 
 def cmd_fast(opts):
@@ -456,7 +466,7 @@ _CMDS = (("up", cmd_up),
          ("logs", cmd_logs),
          ("flaky", cmd_flaky),
          ("slow", cmd_slow),
-         ("bislow", cmd_bislow),
+         ("filter", cmd_filter),
          ("duplicate", cmd_duplicate),
          ("fast", cmd_fast),
          ("partition", cmd_partition),
@@ -514,15 +524,24 @@ def setup_parser():
     _add_container_selection_options(command_parsers["fast"])
     _add_container_selection_options(command_parsers["duplicate"])
 
-    _add_link_selection_options(command_parsers["bislow"])
+    command_parsers["filter"].add_argument(
+        'container', metavar='CONTAINER', nargs=1,
+        help='Container to have the filter applied to')
+    command_parsers["filter"].add_argument(
+        "-d", "--delay",
+        help="The amount of time in ms to delay the given link", type=int)
+    command_parsers["filter"].add_argument(
+        "-l", "--loss",
+        help="Them amount of packets to be dropped on the given link", type=int)
+    command_parsers["filter"].add_argument(
+        "-t", "--throttle",
+        help="The amount of bandwidth in mbit available for the node on the given link", type=int)
+    command_parsers["filter"].add_argument(
+        'subnet', metavar='SUBNET', nargs=1, default='0.0.0.0/0', type=str,
+        help="The Subnet for the filter target")
 
     command_parsers["logs"].add_argument("container", metavar='CONTAINER',
                                          help="Container to fetch logs for")
-
-    command_parsers["bislow"].add_argument(
-        "--delay",
-        help="The amount of time in ms to delay the given link", type=int, default=50
-    )
 
     command_parsers["partition"].add_argument(
         'partitions', nargs='*', metavar='PARTITION',
