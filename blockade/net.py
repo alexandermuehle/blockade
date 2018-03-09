@@ -60,6 +60,9 @@ class BlockadeNetwork(object):
         slow_config = self.config.network['slow'].split()
         self.traffic_control.netem(device, ["delay"] + slow_config)
 
+    def filter(self, from_device, to_subnet, filter_op):
+        self.traffic_control.netem_filter(from_device, to_subnet, filter_op)
+
     def duplicate(self, device):
         duplicate_config = self.config.network['duplicate'].split()
         self.traffic_control.netem(device, ["duplicate"] + duplicate_config)
@@ -281,11 +284,84 @@ class _TrafficControl(object):
             else:
                 raise
 
-
     def netem(self, device, params):
         cmd = ["tc", "qdisc", "replace", "dev", device,
                "root", "netem"] + params
         self.host_exec.run(cmd)
+
+    def netem_filter(self, from_device, to_ip, filter_op):
+
+        split_subnet = to_ip.split(".")
+        handle = str(split_subnet[1])
+
+        # Create root qdisc
+        cmd = "tc qdisc add dev " + from_device + " root handle 1: htb"
+        print(cmd)
+        try:
+            self.host_exec.run(cmd)
+        except Exception as e:
+            if "File exists" in str(e):
+                pass
+            else:
+                raise
+
+        # Create region class
+        cmd = "tc class add dev " + from_device + " parent 1: classid 1:" + handle + " htb rate 100mbit"
+        print(cmd)
+        try:
+            self.host_exec.run(cmd)
+        except Exception as e:
+            if "File exists" in str(e):
+                pass
+            else:
+                raise
+
+        # Create target filter
+        cmd = "tc filter add dev " + from_device + " parent 1: protocol ip prio 1 u32 match ip src " + to_ip + " flowid 1:" + handle
+        print(cmd)
+        try:
+            self.host_exec.run(cmd)
+        except Exception as e:
+            if "File exists" in str(e):
+                pass
+            else:
+                raise
+
+        for filtr in filter_op:
+            if filtr.name is "delay":
+                self._netem_slow(from_device, handle, filtr.value)
+            if filtr.name is "loss":
+                self._netem_loss(from_device, handle, filtr.value)
+            if filtr.name is "throttle":
+                self._netem_throttle(from_device, handle, filtr.value)
+
+    def _netem_slow(self, from_device, handle, delay):
+        # Add netem qdisc
+        cmd = "tc qdisc add dev " + from_device + " parent 1:" + handle + " handle " + handle + ": netem delay " + str(delay) + "ms"
+        print(cmd)
+        try:
+            self.host_exec.run(cmd)
+        except Exception as e:
+            if "File exists" in str(e):
+                pass
+            else:
+                raise
+
+    def _netem_loss(self, from_device, handle, loss):
+        # Add netem qdisc
+        cmd = "tc qdisc add dev " + from_device + " parent 1:" + handle + " handle " + handle + ": netem loss " + loss + "%"
+        try:
+            self.host_exec.run(cmd)
+        except Exception:
+            pass  # netem already exists
+
+    def _netem_throttle(self, from_device, handle, throttle):
+        # Add netem qdisc
+        cmd = "tc class change dev " + from_device + " parent 1: classid 1:" + handle + " htb rate " + str(throttle) + "mbit"
+        try:
+            self.host_exec.run(cmd)
+        except Exception:
+            pass  # netem already exists
 
     def network_state(self, device):
         cmd = ["tc", "qdisc", "show", "dev", device]

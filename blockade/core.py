@@ -123,6 +123,9 @@ class Blockade(object):
             raise
         return device
 
+    def _get_container_ip(self, container_name):
+        return self._get_container_description(container_name).ip_address
+
     def __get_container_links(self, container):
         links = {}
         for link, alias in container.links.items():
@@ -361,11 +364,33 @@ class Blockade(object):
             self._audit.log_event(func.__name__, audit_status, message,
                                   container_names)
 
+    def __with_running_container_device_filter(self, from_name, subnet, filter_op, func):
+        message = ""
+        audit_status = "Success"
+        try:
+            container = self._get_running_container(from_name)
+            container_names = [from_name]
+            from_device = self._get_device_id(container.container_id, container.name)
+
+            func(from_device, subnet, filter_op)
+
+            return container_names
+        except Exception as ex:
+            audit_status = "Failed"
+            message = str(ex)
+            raise
+        finally:
+            container_names = [from_name]
+            self._audit.log_event(func.__name__, audit_status, message, container_names)
+
     def flaky(self, container_names, select_random=False):
         return self.__with_running_container_device(container_names, self.network.flaky, select_random)
 
     def slow(self, container_names, select_random=False):
         return self.__with_running_container_device(container_names, self.network.slow, select_random)
+
+    def filter(self, container_name, subnet, filter_op):
+        return self.__with_running_container_device_filter(container_name, subnet, filter_op, self.network.filter)
 
     def duplicate(self, container_names, select_random=False):
         return self.__with_running_container_device(container_names, self.network.duplicate, select_random)
